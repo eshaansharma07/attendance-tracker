@@ -4,11 +4,10 @@ import os
 from datetime import datetime, timedelta
 import pandas as pd
 
-# ---------- File Paths ----------
 DATA_FILE = "data.json"
 TIMETABLE_FILE = "timetable.json"
 
-# ---------- Helpers ----------
+# ---------- Data Handling ----------
 def load_data():
     if not os.path.exists(DATA_FILE):
         return {}
@@ -29,6 +28,7 @@ def save_timetable(timetable):
     with open(TIMETABLE_FILE, "w") as f:
         json.dump(timetable, f, indent=4)
 
+# ---------- Stats & Prediction ----------
 def calculate_stats(subject_data):
     total = subject_data["attended"] + subject_data["missed"]
     if total == 0:
@@ -39,12 +39,15 @@ def calculate_stats(subject_data):
     must_attend = int(((target / 100 * total - subject_data["attended"]) / (1 - target / 100)) + 1) if percentage < target else 0
     return round(percentage, 2), can_skip, must_attend
 
-def predict_if_skip(subject_data):
+def ai_can_skip(subject_data):
     a = subject_data["attended"]
-    m = subject_data["missed"] + 1
-    total = a + m
-    percentage = (a / total) * 100
-    return round(percentage, 2)
+    m = subject_data["missed"]
+    t = a + m
+    target = subject_data["target"]
+    new_missed = m + 1
+    new_total = a + new_missed
+    new_percent = (a / new_total) * 100
+    return new_percent >= target, round(new_percent, 2)
 
 def get_today():
     return datetime.now().strftime("%A")
@@ -67,9 +70,9 @@ def get_weekly_summary(subject_data):
     percentage = (attended / total) * 100 if total > 0 else 0
     return attended, total, round(percentage, 2)
 
-# ---------- Streamlit UI ----------
+# ---------- Streamlit App ----------
 st.set_page_config(page_title="📈 Smart Attendance Tracker", layout="centered")
-st.title("📈 Smart Attendance Tracker")
+st.title("📈 Smart Attendance Tracker with AI Skip Prediction")
 
 data = load_data()
 timetable = load_timetable()
@@ -148,7 +151,7 @@ if today_subjects:
                 st.experimental_rerun()
 
             percent, can_skip, must_attend = calculate_stats(data[subject])
-            sim_skip_percent = predict_if_skip(data[subject])
+            can_skip_ai, sim_skip_percent = ai_can_skip(data[subject])
             weekly_attended, weekly_total, weekly_percent = get_weekly_summary(data[subject])
 
             col3.metric("Attendance %", f"{percent}%")
@@ -158,9 +161,12 @@ if today_subjects:
 
             if percent >= data[subject]["target"]:
                 st.success("✅ On track! 🎉")
-                st.info(f"If you skip next class: **{sim_skip_percent}%**")
+                if can_skip_ai:
+                    st.info(f"🟢 You can safely skip the next class (→ {sim_skip_percent}%)")
+                else:
+                    st.warning(f"🟡 Skipping will drop you below target (→ {sim_skip_percent}%)")
             else:
-                st.error(f"⚠️ Below target! Need to attend {must_attend} class(es).")
+                st.error(f"🔴 Below target! You must attend to recover.")
 
             st.markdown(f"📅 **Weekly Summary**: {weekly_attended}/{weekly_total} attended (**{weekly_percent}%**)")
             st.markdown("---")
