@@ -1,13 +1,18 @@
+# === All imports at the top ===
 import streamlit as st
 import json
 import os
 from datetime import datetime, timedelta
 import pandas as pd
+from PIL import Image
+import pytesseract
+import re
 
+# === Constants ===
 DATA_FILE = "data.json"
 TIMETABLE_FILE = "timetable.json"
 
-# ---------- Data Handling ----------
+# === Load/Save functions ===
 def load_data():
     if not os.path.exists(DATA_FILE):
         return {}
@@ -34,7 +39,7 @@ def save_timetable(timetable):
     with open(TIMETABLE_FILE, "w") as f:
         json.dump(timetable, f, indent=4)
 
-# ---------- Stats & Prediction ----------
+# === Attendance helpers ===
 def calculate_stats(subject_data):
     total = subject_data["attended"] + subject_data["missed"]
     if total == 0:
@@ -63,7 +68,7 @@ def get_today_date():
 
 def get_week_range():
     today = datetime.now()
-    start = today - timedelta(days=today.weekday())  # Monday
+    start = today - timedelta(days=today.weekday())
     return [start + timedelta(days=i) for i in range(7)]
 
 def get_weekly_summary(subject_data):
@@ -76,7 +81,7 @@ def get_weekly_summary(subject_data):
     percentage = (attended / total) * 100 if total > 0 else 0
     return attended, total, round(percentage, 2)
 
-# ---------- Streamlit App ----------
+# === Streamlit App UI ===
 st.set_page_config(page_title="📈 Smart Attendance Tracker", layout="centered")
 st.title("📈 Smart Attendance Tracker with AI Skip Prediction")
 
@@ -86,7 +91,7 @@ today = get_today()
 today_date = get_today_date()
 today_subjects = timetable.get(today, [])
 
-# ---------- Sidebar: Add Subject ----------
+# === Sidebar: Add / Remove Subject ===
 st.sidebar.header("➕ Add Subject")
 subject_name = st.sidebar.text_input("Subject name")
 target = st.sidebar.slider("Minimum Attendance %", 50, 100, 75)
@@ -102,8 +107,6 @@ if st.sidebar.button("Add Subject"):
         st.sidebar.success(f"Added {subject_name}")
         st.rerun()
 
-
-# ---------- Sidebar: Remove Subject ----------
 st.sidebar.header("🗑️ Remove Subject")
 if data:
     subject_to_remove = st.sidebar.selectbox("Select subject to remove", list(data.keys()))
@@ -113,7 +116,7 @@ if data:
         st.sidebar.success(f"Removed {subject_to_remove}")
         st.rerun()
 
-# ---------- Sidebar: Timetable Editor ----------
+# === Sidebar: Timetable Editor ===
 st.sidebar.header("🕒 Timetable Editor")
 selected_day = st.sidebar.selectbox("Select Day", list(timetable.keys()))
 current_subjects = timetable[selected_day]
@@ -126,7 +129,6 @@ if st.sidebar.button("Add to Timetable"):
             save_timetable(timetable)
             st.sidebar.success(f"Added {new_subject} to {selected_day}")
             st.rerun()
-
         else:
             st.sidebar.warning("Subject already in timetable.")
     else:
@@ -140,8 +142,7 @@ if current_subjects:
         st.sidebar.success(f"Removed {subject_to_remove_tt} from {selected_day}")
         st.rerun()
 
-
-# ---------- Main: Today's Subjects ----------
+# === Main Section: Today's Subjects ===
 st.subheader(f"🗓️ Today is: {today}")
 if today_subjects:
     st.markdown("### 📚 Today's Subjects")
@@ -153,13 +154,11 @@ if today_subjects:
                 data[subject]["history"][today_date] = "attended"
                 save_data(data)
                 st.rerun()
-
             if col2.button(f"❌ Absent - {subject}"):
                 data[subject]["missed"] += 1
                 data[subject]["history"][today_date] = "missed"
                 save_data(data)
                 st.rerun()
-
 
             percent, can_skip, must_attend = calculate_stats(data[subject])
             can_skip_ai, sim_skip_percent = ai_can_skip(data[subject])
@@ -167,40 +166,67 @@ if today_subjects:
 
             col3.metric("Attendance %", f"{percent}%")
             st.write(f"🎯 Target: {data[subject]['target']}%")
-            st.write(f"Can Skip: {can_skip} class(es)")
-            st.write(f"Must Attend: {must_attend} class(es)")
-
+            st.write(f"Can Skip: {can_skip}")
+            st.write(f"Must Attend: {must_attend}")
             if percent >= data[subject]["target"]:
-                st.success("✅ On track! 🎉")
+                st.success("✅ On track!")
                 if can_skip_ai:
-                    st.info(f"🟢 You can safely skip the next class (→ {sim_skip_percent}%)")
+                    st.info(f"🟢 Safe to skip next (→ {sim_skip_percent}%)")
                 else:
-                    st.warning(f"🟡 Skipping will drop you below target (→ {sim_skip_percent}%)")
+                    st.warning(f"🟡 Skipping drops below target (→ {sim_skip_percent}%)")
             else:
-                st.error(f"🔴 Below target! You must attend to recover.")
-
-            st.markdown(f"📅 **Weekly Summary**: {weekly_attended}/{weekly_total} attended (**{weekly_percent}%**)")
+                st.error("🔴 Below target! Attend more.")
+            st.markdown(f"📅 **Weekly Summary**: {weekly_attended}/{weekly_total} attended ({weekly_percent}%)")
             st.markdown("---")
 else:
-    st.info("No subjects scheduled for today.")
+    st.info("No subjects today.")
 
-# ---------- CSV Export ----------
+# === CSV Export ===
 st.subheader("📤 Export Attendance Data")
-
 if st.button("📁 Download CSV"):
-    csv_data = []
-    for subject, info in data.items():
-        percent, can_skip, must_attend = calculate_stats(info)
-        total = info["attended"] + info["missed"]
-        csv_data.append({
-            "Subject": subject,
-            "Target %": info["target"],
-            "Attended": info["attended"],
-            "Missed": info["missed"],
-            "Total": total,
-            "Attendance %": percent,
-            "Can Skip": can_skip,
-            "Must Attend": must_attend
-        })
-    df = pd.DataFrame(csv_data)
-    st.download_button("⬇️ Download CSV", df.to_csv(index=False), file_name="attendance_report.csv", mime="text/csv")
+    df = pd.DataFrame([{
+        "Subject": k,
+        "Target %": v["target"],
+        "Attended": v["attended"],
+        "Missed": v["missed"],
+        "Attendance %": calculate_stats(v)[0]
+    } for k, v in data.items()])
+    st.download_button("⬇️ Download", df.to_csv(index=False), "attendance.csv", "text/csv")
+
+# === Phase 6.1 + 6.2: Image Upload and Auto Parse Group B ===
+st.subheader("📷 Import Timetable from Image (Auto-detect Group B)")
+
+uploaded_image = st.file_uploader("Upload timetable photo (both Group A and B visible)", type=["jpg", "jpeg", "png"])
+
+if uploaded_image:
+    image = Image.open(uploaded_image)
+    st.image(image, caption="Uploaded Image", use_column_width=True)
+    text = pytesseract.image_to_string(image)
+
+    st.markdown("### 📝 Extracted Text")
+    st.text_area("Raw OCR Output", text, height=250)
+
+    # Extract Group B section
+    if "GROUP B" in text:
+        group_b_text = text.split("GROUP B", 1)[1]
+        st.markdown("### 🧠 Detected Section: GROUP B")
+
+        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        timetable_extracted = {day: [] for day in days}
+
+        for line in group_b_text.splitlines():
+            line = line.strip()
+            for day in days:
+                if re.match(day, line, re.IGNORECASE):
+                    subjects = re.split(r'\s{2,}', line[len(day):].strip())  # Split if 2+ spaces
+                    cleaned = [s.strip().title() for s in subjects if s.strip()]
+                    timetable_extracted[day] = cleaned
+
+        st.json(timetable_extracted)
+
+        if st.button("✅ Save this timetable"):
+            save_timetable(timetable_extracted)
+            st.success("✅ Timetable updated from image!")
+            st.rerun()
+    else:
+        st.warning("⚠️ Could not detect 'GROUP B' section. Make sure it’s clearly labeled.")
