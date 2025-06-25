@@ -5,11 +5,12 @@ import pandas as pd
 import requests
 from PIL import Image
 import io
+from docx import Document
 
 st.set_page_config(page_title="Smart Attendance Tracker with AI", layout="wide")
 
 # -------------------- Constants -------------------- #
-OCR_API_KEY = "K81789618588957"  # Replace with your actual key
+OCR_API_KEY = "K81789618588957"
 OCR_URL = "https://api.ocr.space/parse/image"
 
 # -------------------- Load or Initialize Data -------------------- #
@@ -111,31 +112,43 @@ if st.button("Download CSV"):
     df = pd.DataFrame(records)
     st.download_button("Download CSV", df.to_csv(index=False), file_name="attendance.csv", mime="text/csv")
 
-# -------------------- OCR Timetable Upload -------------------- #
-st.subheader("📷 Upload Timetable Image")
+# -------------------- Upload Timetable -------------------- #
+st.subheader("📤 Upload Timetable File (Image or Word)")
 section_options = ["A", "B"]
 selected_section = st.selectbox("Select your group/section", section_options)
-uploaded_file = st.file_uploader("Upload timetable image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload timetable image or .docx file", type=["jpg", "jpeg", "png", "docx"])
 
 if uploaded_file:
-    image_bytes = uploaded_file.read()
-    st.image(image_bytes, caption="Uploaded Image")
-
-    response = requests.post(
-        OCR_URL,
-        files={"filename": image_bytes},
-        data={"apikey": OCR_API_KEY, "language": "eng"},
-    )
-
-    result = response.json()
-    try:
-        extracted_text = result["ParsedResults"][0]["ParsedText"]
-        st.text_area("🧾 Extracted Text", extracted_text, height=200)
+    if uploaded_file.name.endswith(".docx"):
+        doc = Document(uploaded_file)
+        extracted_text = "\n".join([para.text for para in doc.paragraphs])
+        st.text_area("🧾 Extracted Text from Word File", extracted_text, height=200)
 
         if selected_section in extracted_text:
-            st.success(f"Timetable for Group {selected_section} detected!")
-            # TODO: Auto-parse and update timetable.json
+            st.success(f"Timetable for Group {selected_section} detected in Word file!")
+            # TODO: Parse and build timetable.json
         else:
-            st.warning(f"Could not find '{selected_section}' in text. Check your image.")
-    except:
-        st.error("OCR failed. Please try again with a clearer image.")
+            st.warning(f"Could not find '{selected_section}' in Word document.")
+
+    else:
+        image_bytes = uploaded_file.read()
+        st.image(image_bytes, caption="Uploaded Image")
+
+        response = requests.post(
+            OCR_URL,
+            files={"filename": image_bytes},
+            data={"apikey": OCR_API_KEY, "language": "eng"},
+        )
+
+        result = response.json()
+        try:
+            extracted_text = result["ParsedResults"][0]["ParsedText"]
+            st.text_area("🧾 Extracted Text from Image", extracted_text, height=200)
+
+            if selected_section in extracted_text:
+                st.success(f"Timetable for Group {selected_section} detected!")
+                # TODO: Auto-parse and update timetable.json
+            else:
+                st.warning(f"Could not find '{selected_section}' in text. Check your image.")
+        except:
+            st.error("OCR failed. Please try again with a clearer image.")
