@@ -2,3 +2,4 @@ streamlit
 pandas
 pytesseract
 pillow
+requests
