@@ -100,7 +100,8 @@ if st.sidebar.button("Add Subject"):
         data[subject_name] = {"attended": 0, "missed": 0, "target": target, "history": {}}
         save_data(data)
         st.sidebar.success(f"Added {subject_name}")
-        st.experimental_rerun()
+        st.rerun()
+
 
 # ---------- Sidebar: Remove Subject ----------
 st.sidebar.header("🗑️ Remove Subject")
@@ -110,7 +111,7 @@ if data:
         del data[subject_to_remove]
         save_data(data)
         st.sidebar.success(f"Removed {subject_to_remove}")
-        st.experimental_rerun()
+        st.rerun()
 
 # ---------- Sidebar: Timetable Editor ----------
 st.sidebar.header("🕒 Timetable Editor")
@@ -124,7 +125,8 @@ if st.sidebar.button("Add to Timetable"):
             timetable[selected_day].append(new_subject)
             save_timetable(timetable)
             st.sidebar.success(f"Added {new_subject} to {selected_day}")
-            st.experimental_rerun()
+            st.rerun()
+
         else:
             st.sidebar.warning("Subject already in timetable.")
     else:
@@ -136,7 +138,8 @@ if current_subjects:
         timetable[selected_day].remove(subject_to_remove_tt)
         save_timetable(timetable)
         st.sidebar.success(f"Removed {subject_to_remove_tt} from {selected_day}")
-        st.experimental_rerun()
+        st.rerun()
+
 
 # ---------- Main: Today's Subjects ----------
 st.subheader(f"🗓️ Today is: {today}")
@@ -149,12 +152,14 @@ if today_subjects:
                 data[subject]["attended"] += 1
                 data[subject]["history"][today_date] = "attended"
                 save_data(data)
-                st.experimental_rerun()
+                st.rerun()
+
             if col2.button(f"❌ Absent - {subject}"):
                 data[subject]["missed"] += 1
                 data[subject]["history"][today_date] = "missed"
                 save_data(data)
-                st.experimental_rerun()
+                st.rerun()
+
 
             percent, can_skip, must_attend = calculate_stats(data[subject])
             can_skip_ai, sim_skip_percent = ai_can_skip(data[subject])
