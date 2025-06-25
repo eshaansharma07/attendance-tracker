@@ -193,7 +193,7 @@ if uploaded:
     if "GROUP B" not in extracted_text:
         st.warning("Could not find 'GROUP B' in text. Check your image.")
     else:
-        group_b_text = extracted_text.split("GROUP B", 1)[1]
+        group_b_text = extracted_text.split("B", 1)[1]
         st.markdown("### 📋 Parsed Timetable from GROUP B")
 
         days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
