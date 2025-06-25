@@ -11,8 +11,14 @@ TIMETABLE_FILE = "timetable.json"
 def load_data():
     if not os.path.exists(DATA_FILE):
         return {}
-    with open(DATA_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(DATA_FILE, "r") as f:
+            data = json.load(f)
+            if not isinstance(data, dict):
+                return {}
+            return data
+    except:
+        return {}
 
 def save_data(data):
     with open(DATA_FILE, "w") as f:
@@ -46,7 +52,7 @@ def ai_can_skip(subject_data):
     target = subject_data["target"]
     new_missed = m + 1
     new_total = a + new_missed
-    new_percent = (a / new_total) * 100
+    new_percent = (a / new_total) * 100 if new_total > 0 else 0
     return new_percent >= target, round(new_percent, 2)
 
 def get_today():
