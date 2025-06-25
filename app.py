@@ -1,206 +1,154 @@
 import streamlit as st
 import json
-import os
-from datetime import date
+import datetime
+import pandas as pd
 import requests
 from PIL import Image
 import io
-import re
+from docx import Document
 
-# ---------- CONFIG ---------- #
-st.set_page_config(page_title="Smart Attendance Tracker", layout="wide")
+st.set_page_config(page_title="Smart Attendance Tracker with AI", layout="wide")
 
-# ---------- FILES ---------- #
-DATA_FILE = "data.json"
-TIMETABLE_FILE = "timetable.json"
-OCR_API_KEY = "K81789618588957"  # Your OCR.space API Key
+# -------------------- Constants -------------------- #
+OCR_API_KEY = "K81789618588957"
+OCR_URL = "https://api.ocr.space/parse/image"
 
-# ---------- INIT ---------- #
+# -------------------- Load or Initialize Data -------------------- #
 def load_data():
-    if not os.path.exists(DATA_FILE):
+    try:
+        with open("data.json", "r") as f:
+            return json.load(f)
+    except:
         return {}
-    with open(DATA_FILE, "r") as f:
-        return json.load(f)
 
 def save_data(data):
-    with open(DATA_FILE, "w") as f:
+    with open("data.json", "w") as f:
         json.dump(data, f, indent=4)
 
 def load_timetable():
-    if not os.path.exists(TIMETABLE_FILE):
-        return {day: [] for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]}
-    with open(TIMETABLE_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open("timetable.json", "r") as f:
+            return json.load(f)
+    except:
+        return {}
 
 def save_timetable(timetable):
-    with open(TIMETABLE_FILE, "w") as f:
+    with open("timetable.json", "w") as f:
         json.dump(timetable, f, indent=4)
 
-# ---------- FUNCTIONS ---------- #
-def calculate_attendance(subject_data):
-    attended = subject_data["attended"]
-    missed = subject_data["missed"]
-    total = attended + missed
-    target = subject_data["target"]
-    if total == 0:
-        return f"🔘 Attendance: 0% | 🎯 Target: {target}%"
-    percentage = (attended / total) * 100
-    status = f"✅ {percentage:.1f}%" if percentage >= target else f"⚠️ {percentage:.1f}%"
-    return f"{status} | 🎯 {target}%"
-
-def prediction_text(attended, missed, target):
-    total = attended + missed
-    if total == 0:
-        return "🔹 Not enough data for prediction."
-    current = (attended / total) * 100
-    if current < target:
-        needed = ((target * total) - (100 * attended)) / (100 - target)
-        return f"🔺 You must attend next {int(needed) + 1} class(es) to reach {target}%."
-    else:
-        can_miss = (attended * 100 - target * total) / target
-        return f"🟢 You can miss {int(can_miss)} more class(es) without falling below {target}%."
-
-def export_csv(data):
-    import pandas as pd
-    rows = []
-    for subject, stats in data.items():
-        percentage = 0 if (stats["attended"] + stats["missed"]) == 0 else (stats["attended"] / (stats["attended"] + stats["missed"])) * 100
-        rows.append({
-            "Subject": subject,
-            "Attended": stats["attended"],
-            "Missed": stats["missed"],
-            "Attendance (%)": round(percentage, 2),
-            "Target (%)": stats["target"]
-        })
-    return pd.DataFrame(rows).to_csv(index=False).encode('utf-8')
-
-def extract_text_from_image(img):
-    buffered = io.BytesIO()
-    img.save(buffered, format="PNG")
-    image_bytes = buffered.getvalue()
-
-    url = "https://api.ocr.space/parse/image"
-    headers = {"apikey": OCR_API_KEY}
-    response = requests.post(url, files={"filename": image_bytes}, data={"language": "eng"}, headers=headers)
-
-    result = response.json()
-    if result.get("IsErroredOnProcessing"):
-        return "Error: " + result.get("ErrorMessage", ["Unknown error"])[0]
-    return result["ParsedResults"][0]["ParsedText"]
-
-# ---------- MAIN ---------- #
-st.title("📈 Smart Attendance Tracker with AI Skip Prediction")
-
+# -------------------- App Logic -------------------- #
 data = load_data()
 timetable = load_timetable()
-today = date.today().strftime("%A")
+today = datetime.datetime.now().strftime("%A")
 
-# ---------- SIDEBAR ---------- #
+st.title("📉 Smart Attendance Tracker with AI Skip Prediction")
+
+# -------------------- Attendance Actions -------------------- #
+if today in timetable:
+    st.subheader(f"📅 Today is: {today}")
+    for subject in timetable[today]:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.write(f"### {subject}")
+        with col2:
+            if st.button(f"✅ Attended {subject}"):
+                data[subject]["attended"] += 1
+                data[subject]["history"].append({"date": str(datetime.date.today()), "status": "Present"})
+                save_data(data)
+        with col3:
+            if st.button(f"❌ Missed {subject}"):
+                data[subject]["missed"] += 1
+                data[subject]["history"].append({"date": str(datetime.date.today()), "status": "Absent"})
+                save_data(data)
+else:
+    st.info("No subjects scheduled for today.")
+
+# -------------------- Add Subject -------------------- #
 st.sidebar.header("➕ Add Subject")
 subject_name = st.sidebar.text_input("Subject name")
 target = st.sidebar.slider("Minimum Attendance %", 50, 100, 75)
-
-if st.sidebar.button("Add Subject") and subject_name:
-    if subject_name not in data:
+if st.sidebar.button("Add Subject"):
+    if subject_name:
         data[subject_name] = {"attended": 0, "missed": 0, "target": target, "history": []}
         save_data(data)
         st.sidebar.success(f"Added {subject_name}")
+
+# -------------------- Remove Subject -------------------- #
+st.sidebar.header("🗑 Remove Subject")
+if data:
+    remove_subj = st.sidebar.selectbox("Select subject", list(data.keys()))
+    if st.sidebar.button("Remove Subject"):
+        data.pop(remove_subj)
+        save_data(data)
+        st.sidebar.warning(f"Removed {remove_subj}")
+
+# -------------------- Timetable Editor -------------------- #
+st.sidebar.header("🗓 Timetable Editor")
+day = st.sidebar.selectbox("Select Day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+subject_for_day = st.sidebar.text_input("Add subject to " + day)
+if st.sidebar.button("Add to Timetable"):
+    if day not in timetable:
+        timetable[day] = []
+    timetable[day].append(subject_for_day)
+    save_timetable(timetable)
+    st.sidebar.success(f"Added {subject_for_day} to {day}")
+
+# -------------------- Export Data -------------------- #
+st.subheader("📊 Export Attendance Data")
+if st.button("Download CSV"):
+    records = []
+    for subject, stats in data.items():
+        total = stats["attended"] + stats["missed"]
+        percentage = (stats["attended"] / total) * 100 if total > 0 else 0
+        skip_possible = int((stats["attended"] / stats["target"] * 100 - 100) * total / 100) if stats["target"] else 0
+        records.append({
+            "Subject": subject,
+            "Attended": stats["attended"],
+            "Missed": stats["missed"],
+            "Percentage": round(percentage, 2),
+            "Target": stats["target"],
+            "Classes you can skip": max(skip_possible, 0)
+        })
+    df = pd.DataFrame(records)
+    st.download_button("Download CSV", df.to_csv(index=False), file_name="attendance.csv", mime="text/csv")
+
+# -------------------- Upload Timetable -------------------- #
+st.subheader("📤 Upload Timetable File (Image or Word)")
+section_options = ["A", "B"]
+selected_section = st.selectbox("Select your group/section", section_options)
+uploaded_file = st.file_uploader("Upload timetable image or .docx file", type=["jpg", "jpeg", "png", "docx"])
+
+if uploaded_file:
+    if uploaded_file.name.endswith(".docx"):
+        doc = Document(uploaded_file)
+        extracted_text = "\n".join([para.text for para in doc.paragraphs])
+        st.text_area("🧾 Extracted Text from Word File", extracted_text, height=200)
+
+        if selected_section in extracted_text:
+            st.success(f"Timetable for Group {selected_section} detected in Word file!")
+            # TODO: Parse and build timetable.json
+        else:
+            st.warning(f"Could not find '{selected_section}' in Word document.")
+
     else:
-        st.sidebar.warning("Subject already exists!")
+        image_bytes = uploaded_file.read()
+        st.image(image_bytes, caption="Uploaded Image")
 
-st.sidebar.header("➖ Remove Subject")
-to_remove = st.sidebar.selectbox("Select to remove", list(data.keys()) or [""])
-if st.sidebar.button("Remove Subject") and to_remove in data:
-    del data[to_remove]
-    save_data(data)
-    st.sidebar.success(f"Removed {to_remove}")
+        response = requests.post(
+            OCR_URL,
+            files={"filename": image_bytes},
+            data={"apikey": OCR_API_KEY, "language": "eng"},
+        )
 
-st.sidebar.header("🗓️ Timetable Editor")
-selected_day = st.sidebar.selectbox("Select Day", list(timetable.keys()))
-new_subject = st.sidebar.text_input("Add subject to " + selected_day)
-if st.sidebar.button("Add to Timetable") and new_subject:
-    if new_subject not in timetable[selected_day]:
-        timetable[selected_day].append(new_subject)
-        save_timetable(timetable)
-        st.sidebar.success("Added to timetable!")
+        result = response.json()
+        try:
+            extracted_text = result["ParsedResults"][0]["ParsedText"]
+            st.text_area("🧾 Extracted Text from Image", extracted_text, height=200)
 
-# ---------- TODAY'S SCHEDULE ---------- #
-st.subheader(f"📅 Today is: {today}")
-today_subjects = timetable.get(today, [])
-
-if not today_subjects:
-    st.info("No subjects scheduled for today.")
-else:
-    for subject in today_subjects:
-        if subject not in data:
-            st.warning(f"Subject '{subject}' not in your subjects list.")
-            continue
-
-        col1, col2, col3 = st.columns([2,1,1])
-        with col1:
-            st.markdown(f"**{subject}** — {calculate_attendance(data[subject])}")
-        with col2:
-            if st.button(f"✅ Present {subject}"):
-                data[subject]["attended"] += 1
-                data[subject]["history"].append((str(date.today()), "Present"))
-                save_data(data)
-                st.rerun()
-        with col3:
-            if st.button(f"❌ Absent {subject}"):
-                data[subject]["missed"] += 1
-                data[subject]["history"].append((str(date.today()), "Absent"))
-                save_data(data)
-                st.rerun()
-
-        st.caption(prediction_text(data[subject]["attended"], data[subject]["missed"], data[subject]["target"]))
-        st.markdown("---")
-
-# ---------- EXPORT ---------- #
-st.subheader("📤 Export Attendance Data")
-st.download_button("Download CSV", data=export_csv(data), file_name="attendance.csv", mime="text/csv")
-
-# ---------- IMAGE UPLOAD FOR TIMETABLE ---------- #
-st.subheader("📷 Upload Timetable Image")
-
-section = st.selectbox("Select your group/section", [
-    "24AML-102 GROUP A",
-    "24AML-102 GROUP B",
-    "24AML6-A"
-])
-
-uploaded = st.file_uploader("Upload timetable image (with selected group visible)", type=["jpg", "jpeg", "png"])
-
-if uploaded and section:
-    img = Image.open(uploaded)
-    st.image(img, caption="Uploaded Image", use_column_width=True)
-    extracted_text = extract_text_from_image(img)
-    st.text_area("🧾 Extracted Text", extracted_text, height=250)
-
-    # Smart match section name
-    section_keywords = {
-        "24AML-102 GROUP A": " A",
-        "24AML-102 GROUP B": " B",
-        "24AML6-A": "24AML6-A"
-    }
-
-    match_text = section_keywords.get(section, section)
-    if match_text.lower() not in extracted_text.lower():
-        st.warning(f"Could not find '{match_text}' in text. Check your image.")
-    else:
-        group_text = extracted_text.split(match_text, 1)[1]
-        st.markdown(f"### 📋 Parsed Timetable for: {section}")
-
-        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        parsed = {day: [] for day in days}
-        for line in group_text.splitlines():
-            line = line.strip()
-            for day in days:
-                if re.match(day, line, re.IGNORECASE):
-                    subjects = re.split(r'\s{2,}', line[len(day):].strip())
-                    parsed[day] = [s.strip().title() for s in subjects if s.strip()]
-        st.json(parsed)
-
-        if st.button("✅ Save as Timetable"):
-            save_timetable(parsed)
-            st.success("✅ Timetable saved from image!")
-            st.rerun()
+            if selected_section in extracted_text:
+                st.success(f"Timetable for Group {selected_section} detected!")
+                # TODO: Auto-parse and update timetable.json
+            else:
+                st.warning(f"Could not find '{selected_section}' in text. Check your image.")
+        except:
+            st.error("OCR failed. Please try again with a clearer image.")
